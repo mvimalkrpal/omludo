@@ -79,7 +79,6 @@ class JackarooBoardView @JvmOverloads constructor(
         for (p in 0..3) {
             val bx = centerX + baseOffsets[p].first
             val by = centerY + baseOffsets[p].second
-            val pPaint = playerPaints[p]
 
             // Draw base housing ring
             canvas.drawCircle(bx, by, slotRadius * 2.8f, trackPaint)
