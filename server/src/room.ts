@@ -92,9 +92,6 @@ export class GameRoom extends DurableObject {
       case 'READY':
         this.handleReady(seat, parsed.isReady);
         break;
-      case 'SWAP_CARD':
-        this.handleCardSwap(seat, parsed.cardId);
-        break;
       case 'PLAY_CARD':
         this.handlePlayCard(seat, parsed.action);
         break;
@@ -130,7 +127,7 @@ export class GameRoom extends DurableObject {
       return;
     }
 
-    // Human player timed out: auto-discard
+    // Human player timed out: auto-discard first card
     const discarded = activePlayer.hand.shift();
     this.lastDiscardedCard = discarded || null;
 
@@ -176,7 +173,6 @@ export class GameRoom extends DurableObject {
 
     this.broadcastRoomState();
 
-    // Check if everyone is ready to start
     const allReady = this.players.every((p) => p !== null && p.isReady);
     if (allReady && this.phase === 'WAITING_FOR_PLAYERS') {
       this.startNewRound();
@@ -249,7 +245,6 @@ export class GameRoom extends DurableObject {
       };
     }
 
-    // Persist session metadata directly into the hibernatable WebSocket attachment
     ws.serializeAttachment({ seat: playerSeat, userId });
 
     this.send(ws, this.buildRoomStateMessage(playerSeat));
@@ -265,7 +260,7 @@ export class GameRoom extends DurableObject {
 
     player.isReady = isReady;
 
-    // Automatically fill remaining empty seats with Bots so the game can start immediately!
+    // Fill empty seats with bots automatically
     this.fillWithBots();
 
     this.broadcastRoomState();
@@ -284,17 +279,18 @@ export class GameRoom extends DurableObject {
     for (let i = 0; i < 4; i++) {
       this.players[i]!.hand = dealtHands[i];
       this.players[i]!.swappedCard = null;
-
-      // If Bot, automatically pick first card to swap with partner
-      if (this.players[i]!.userId.startsWith('bot_') && this.players[i]!.hand.length > 0) {
-        this.players[i]!.swappedCard = this.players[i]!.hand.shift() || null;
-      }
     }
 
-    this.phase = 'PARTNER_SWAP';
+    // Direct transition into standard PLAYING turn-based round
+    this.phase = 'PLAYING';
+    this.turnDeadline = Date.now() + TURN_DURATION_MS;
+    this.ctx.storage.setAlarm(this.turnDeadline);
+
     this.broadcast({
       type: 'PHASE_CHANGED',
-      phase: 'PARTNER_SWAP',
+      phase: 'PLAYING',
+      currentTurn: this.currentTurn,
+      turnDeadline: this.turnDeadline,
     });
 
     for (const ws of this.ctx.getWebSockets()) {
@@ -311,62 +307,7 @@ export class GameRoom extends DurableObject {
       }
     }
 
-    // Check if all players (including bots) are ready with swaps
-    const allSwapped = this.players.every((p) => p && p.swappedCard !== null);
-    if (allSwapped) {
-      this.executePartnerSwaps();
-    }
-  }
-
-  private handleCardSwap(seat: PlayerSeat, cardId: string) {
-    if (this.phase !== 'PARTNER_SWAP') return;
-
-    const player = this.players[seat];
-    if (!player) return;
-
-    const cardIndex = player.hand.findIndex((c) => c.id === cardId);
-    if (cardIndex === -1) return;
-
-    player.swappedCard = player.hand.splice(cardIndex, 1)[0];
     this.broadcastRoomState();
-
-    const allSwapped = this.players.every((p) => p && p.swappedCard !== null);
-    if (allSwapped) {
-      this.executePartnerSwaps();
-    }
-  }
-
-  private executePartnerSwaps() {
-    const partnerPairs: [PlayerSeat, PlayerSeat][] = [
-      [0, 2],
-      [1, 3],
-    ];
-
-    for (const [p1, p2] of partnerPairs) {
-      const card1 = this.players[p1]!.swappedCard!;
-      const card2 = this.players[p2]!.swappedCard!;
-
-      this.players[p1]!.hand.push(card2);
-      this.players[p2]!.hand.push(card1);
-
-      this.players[p1]!.swappedCard = null;
-      this.players[p2]!.swappedCard = null;
-
-      this.sendToSeat(p1, { type: 'CARD_SWAPPED_RECEIVED', receivedCard: card2 });
-      this.sendToSeat(p2, { type: 'CARD_SWAPPED_RECEIVED', receivedCard: card1 });
-    }
-
-    this.phase = 'PLAYING';
-    this.turnDeadline = Date.now() + TURN_DURATION_MS;
-    this.ctx.storage.setAlarm(this.turnDeadline);
-
-    this.broadcast({
-      type: 'PHASE_CHANGED',
-      phase: 'PLAYING',
-      currentTurn: this.currentTurn,
-      turnDeadline: this.turnDeadline,
-    });
-
     this.triggerBotTurnIfNeeded();
   }
 
