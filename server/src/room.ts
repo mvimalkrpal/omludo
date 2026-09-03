@@ -9,7 +9,7 @@ import { Card, GamePhase, MoveAction, PlayerSeat, PlayerState, RoundDealCount, T
 export const TURN_DURATION_MS = 15000;
 export const BOT_THINK_DELAY_MS = 1200; // 1.2s delay for natural bot moves
 
-interface SessionData {
+interface SessionAttachment {
   seat: PlayerSeat;
   userId: string;
 }
@@ -33,8 +33,6 @@ export class GameRoom extends DurableObject {
       createInitialMarbles(3),
     ],
   };
-
-  private sessions = new Map<WebSocket, SessionData>();
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
@@ -82,13 +80,13 @@ export class GameRoom extends DurableObject {
       return;
     }
 
-    const session = this.sessions.get(ws);
-    if (!session) {
+    const attachment = ws.deserializeAttachment() as SessionAttachment | null;
+    if (!attachment) {
       this.sendError(ws, 'Must send JOIN before other actions');
       return;
     }
 
-    const seat = session.seat;
+    const seat = attachment.seat;
 
     switch (parsed.type) {
       case 'READY':
@@ -110,14 +108,13 @@ export class GameRoom extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket) {
-    const session = this.sessions.get(ws);
-    if (!session) return;
+    const attachment = ws.deserializeAttachment() as SessionAttachment | null;
+    if (!attachment) return;
 
-    this.sessions.delete(ws);
-    const player = this.players[session.seat];
+    const player = this.players[attachment.seat];
     if (player && !player.userId.startsWith('bot_')) {
       player.isConnected = false;
-      this.broadcast({ type: 'PLAYER_LEFT', seat: session.seat });
+      this.broadcast({ type: 'PLAYER_LEFT', seat: attachment.seat });
     }
   }
 
@@ -207,7 +204,6 @@ export class GameRoom extends DurableObject {
   private triggerBotTurnIfNeeded() {
     const activePlayer = this.players[this.currentTurn];
     if (activePlayer && activePlayer.userId.startsWith('bot_')) {
-      // Schedule bot move after short realistic think delay
       this.ctx.storage.setAlarm(Date.now() + BOT_THINK_DELAY_MS);
     }
   }
@@ -253,7 +249,9 @@ export class GameRoom extends DurableObject {
       };
     }
 
-    this.sessions.set(ws, { seat: playerSeat, userId });
+    // Persist session metadata directly into the hibernatable WebSocket attachment
+    ws.serializeAttachment({ seat: playerSeat, userId });
+
     this.send(ws, this.buildRoomStateMessage(playerSeat));
     this.broadcast({
       type: 'PLAYER_JOINED',
@@ -299,14 +297,17 @@ export class GameRoom extends DurableObject {
       phase: 'PARTNER_SWAP',
     });
 
-    for (const [ws, session] of this.sessions.entries()) {
-      const p = this.players[session.seat];
-      if (p) {
-        this.send(ws, {
-          type: 'CARDS_DEALT',
-          myHand: p.hand,
-          cardCountPerPlayer: dealCount,
-        });
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as SessionAttachment | null;
+      if (attachment) {
+        const p = this.players[attachment.seat];
+        if (p) {
+          this.send(ws, {
+            type: 'CARDS_DEALT',
+            myHand: p.hand,
+            cardCountPerPlayer: dealCount,
+          });
+        }
       }
     }
 
@@ -506,14 +507,17 @@ export class GameRoom extends DurableObject {
   }
 
   private broadcastRoomState() {
-    for (const [ws, session] of this.sessions.entries()) {
-      this.send(ws, this.buildRoomStateMessage(session.seat));
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as SessionAttachment | null;
+      if (attachment) {
+        this.send(ws, this.buildRoomStateMessage(attachment.seat));
+      }
     }
   }
 
   private broadcast(msg: ServerMessage) {
     const payload = JSON.stringify(msg);
-    for (const ws of this.sessions.keys()) {
+    for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.send(payload);
       } catch {}
@@ -536,8 +540,9 @@ export class GameRoom extends DurableObject {
   }
 
   private findSocketForSeat(seat: PlayerSeat): WebSocket | null {
-    for (const [ws, session] of this.sessions.entries()) {
-      if (session.seat === seat) return ws;
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as SessionAttachment | null;
+      if (attachment && attachment.seat === seat) return ws;
     }
     return null;
   }
