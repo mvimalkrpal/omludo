@@ -3,6 +3,7 @@ package `in`.heyluna.omludo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -14,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import `in`.heyluna.omludo.databinding.ActivityMainBinding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
@@ -33,6 +35,7 @@ class MainActivity : AppCompatActivity() {
 
         setupListeners()
         observeState()
+        observeEvents()
     }
 
     private fun setupListeners() {
@@ -50,6 +53,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnReady.setOnClickListener {
+            Log.d("OmLudo", "Ready button clicked!")
             socketClient.setReady(true)
             binding.btnReady.isEnabled = false
             binding.btnReady.text = "Ready!"
@@ -61,16 +65,42 @@ class MainActivity : AppCompatActivity() {
             socketClient.roomState.collectLatest { state ->
                 state ?: return@collectLatest
 
+                Log.d("OmLudo", "Observed new roomState: phase=${state.phase}, currentTurn=${state.currentTurn}, cardsCount=${state.myHand.size}")
+
                 mySeat = state.mySeat
                 currentPhase = state.phase
 
-                binding.tvTurnStatus.text = "Turn: P${state.currentTurn}"
+                binding.tvTurnStatus.text = "Phase: ${state.phase} | Turn: P${state.currentTurn}"
 
                 // Update Jackaroo Board
                 binding.boardView.updateMarbles(state.marbles)
 
                 // Render Hand Cards
                 renderHandCards(state.myHand)
+            }
+        }
+    }
+
+    private fun observeEvents() {
+        lifecycleScope.launch {
+            socketClient.events.collectLatest { eventText ->
+                Log.d("OmLudo", "Observed Event: $eventText")
+                try {
+                    val json = JSONObject(eventText)
+                    val type = json.optString("type")
+                    when (type) {
+                        "PHASE_CHANGED" -> {
+                            val newPhase = json.optString("phase")
+                            binding.tvTurnStatus.text = "Phase: $newPhase"
+                            Toast.makeText(this@MainActivity, "Phase: $newPhase", Toast.LENGTH_SHORT).show()
+                        }
+                        "CARDS_DEALT" -> {
+                            Toast.makeText(this@MainActivity, "Cards Dealt! Tap card to swap with partner.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("OmLudo", "Event parsing error: ${e.message}")
+                }
             }
         }
     }

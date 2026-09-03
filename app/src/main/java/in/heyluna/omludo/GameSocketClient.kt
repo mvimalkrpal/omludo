@@ -1,5 +1,6 @@
 package `in`.heyluna.omludo
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -38,7 +39,10 @@ class GameSocketClient(
 
         try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
+                if (!response.isSuccessful) {
+                    Log.e("OmLudo", "createRoom failed with code ${response.code}")
+                    return@withContext null
+                }
                 val body = response.body?.string() ?: return@withContext null
                 val json = JSONObject(body)
                 return@withContext CreateRoomResponse(
@@ -47,7 +51,7 @@ class GameSocketClient(
                 )
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("OmLudo", "createRoom exception: ${e.message}", e)
             null
         }
     }
@@ -69,17 +73,19 @@ class GameSocketClient(
                 )
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("OmLudo", "lookupRoom exception: ${e.message}", e)
             null
         }
     }
 
     fun connectToRoom(roomId: String, userId: String, userName: String, preferredSeat: Int? = null) {
         val wsUrl = baseUrl.replace("https://", "wss://").replace("http://", "ws://") + "/ws/room/$roomId"
+        Log.d("OmLudo", "Connecting WebSocket to $wsUrl for user $userId")
         val request = Request.Builder().url(wsUrl).build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d("OmLudo", "WebSocket connection opened! Sending JOIN...")
                 val joinMsg = JSONObject().apply {
                     put("type", "JOIN")
                     put("userId", userId)
@@ -90,25 +96,46 @@ class GameSocketClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                Log.d("OmLudo", "WebSocket onMessage: $text")
                 scope.launch {
                     try {
                         val json = JSONObject(text)
-                        if (json.optString("type") == "ROOM_STATE") {
+                        val msgType = json.optString("type")
+
+                        if (msgType == "ROOM_STATE") {
                             val parsedState = parseRoomState(json)
                             _roomState.value = parsedState
-                        } else {
-                            _events.emit(text)
+                        } else if (msgType == "CARDS_DEALT") {
+                            // Update local hand when dealt
+                            val handArray = json.optJSONArray("myHand") ?: JSONArray()
+                            val hand = mutableListOf<Card>()
+                            for (i in 0 until handArray.length()) {
+                                val c = handArray.getJSONObject(i)
+                                hand.add(Card(id = c.getString("id"), suit = c.getString("suit"), rank = c.getString("rank")))
+                            }
+                            _roomState.value = _roomState.value?.copy(myHand = hand)
+                        } else if (msgType == "PHASE_CHANGED") {
+                            _roomState.value = _roomState.value?.copy(phase = json.optString("phase"))
+                        } else if (msgType == "MOVE_PLAYED") {
+                            val nextTurn = json.optInt("nextTurn", 0)
+                            _roomState.value = _roomState.value?.copy(currentTurn = nextTurn)
                         }
+                        _events.emit(text)
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        Log.e("OmLudo", "Error parsing WebSocket message: ${e.message}", e)
                     }
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e("OmLudo", "WebSocket failure: ${t.message}", t)
                 scope.launch {
                     _events.emit(JSONObject().put("type", "CONNECTION_ERROR").put("message", t.message).toString())
                 }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d("OmLudo", "WebSocket closed: $code / $reason")
             }
         })
     }
@@ -184,7 +211,9 @@ class GameSocketClient(
             put("type", "READY")
             put("isReady", isReady)
         }
-        webSocket?.send(msg.toString())
+        Log.d("OmLudo", "Sending READY message: $msg")
+        val sent = webSocket?.send(msg.toString()) ?: false
+        Log.d("OmLudo", "READY message sent result: $sent")
     }
 
     fun swapCard(cardId: String) {
@@ -192,6 +221,7 @@ class GameSocketClient(
             put("type", "SWAP_CARD")
             put("cardId", cardId)
         }
+        Log.d("OmLudo", "Sending SWAP_CARD: $msg")
         webSocket?.send(msg.toString())
     }
 
@@ -207,6 +237,7 @@ class GameSocketClient(
             put("type", "PLAY_CARD")
             put("action", actionJson)
         }
+        Log.d("OmLudo", "Sending PLAY_CARD: $msg")
         webSocket?.send(msg.toString())
     }
 
