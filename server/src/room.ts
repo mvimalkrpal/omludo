@@ -1,11 +1,13 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createInitialMarbles } from './game/board';
+import { JackarooBot } from './game/bot';
 import { DeckManager } from './game/deck';
 import { ClientMessage, PublicPlayerInfo, ServerMessage } from './game/protocol';
 import { GameBoardState, JackarooRuleValidator } from './game/rules';
 import { Card, GamePhase, MoveAction, PlayerSeat, PlayerState, RoundDealCount, Team } from './game/types';
 
-export const TURN_DURATION_MS = 15000; // 15s turn timer
+export const TURN_DURATION_MS = 15000;
+export const BOT_THINK_DELAY_MS = 1200; // 1.2s delay for natural bot moves
 
 interface SessionData {
   seat: PlayerSeat;
@@ -18,11 +20,10 @@ export class GameRoom extends DurableObject {
   private deckManager = new DeckManager();
   private currentTurn: PlayerSeat = 0;
   private turnDeadline: number | null = null;
-  private dealRoundIndex: 0 | 1 | 2 = 0; // 4, 4, 5 deal progression
+  private dealRoundIndex: 0 | 1 | 2 = 0;
   private winningTeam: Team | null = null;
   private lastDiscardedCard: Card | null = null;
 
-  // 4 Player Slots (0, 1, 2, 3)
   private players: (PlayerState | null)[] = [null, null, null, null];
   private boardState: GameBoardState = {
     marbles: [
@@ -58,7 +59,7 @@ export class GameRoom extends DurableObject {
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     if (typeof message !== 'string') return;
 
-    let parsed: ClientMessage;
+    let parsed: any;
     try {
       parsed = JSON.parse(message);
     } catch {
@@ -73,6 +74,11 @@ export class GameRoom extends DurableObject {
 
     if (parsed.type === 'JOIN') {
       this.handleJoin(ws, parsed.userId, parsed.name, parsed.preferredSeat);
+      return;
+    }
+
+    if (parsed.type === 'ADD_BOTS') {
+      this.fillWithBots();
       return;
     }
 
@@ -109,23 +115,25 @@ export class GameRoom extends DurableObject {
 
     this.sessions.delete(ws);
     const player = this.players[session.seat];
-    if (player) {
+    if (player && !player.userId.startsWith('bot_')) {
       player.isConnected = false;
       this.broadcast({ type: 'PLAYER_LEFT', seat: session.seat });
     }
   }
 
   async alarm() {
-    // Turn timeout alarm triggered
     if (this.phase !== 'PLAYING' || this.turnDeadline === null) return;
 
     const activePlayer = this.players[this.currentTurn];
-    if (!activePlayer || activePlayer.hand.length === 0) {
-      this.advanceTurn();
+    if (!activePlayer) return;
+
+    // Check if current player is a Bot or timed-out Human
+    if (activePlayer.userId.startsWith('bot_')) {
+      this.executeBotMove(this.currentTurn);
       return;
     }
 
-    // Auto-discard first card in hand on timeout
+    // Human player timed out: auto-discard
     const discarded = activePlayer.hand.shift();
     this.lastDiscardedCard = discarded || null;
 
@@ -141,21 +149,80 @@ export class GameRoom extends DurableObject {
       nextTurn: this.currentTurn,
       turnDeadline: this.turnDeadline,
     });
+
+    this.triggerBotTurnIfNeeded();
   }
 
-  // --- Handlers ---
+  // --- Bot Filling & Execution ---
+
+  public fillWithBots() {
+    const botNames = ['Sufyan (Bot)', 'Tariq (Bot)', 'Fahad (Bot)', 'Zaid (Bot)'];
+
+    for (let seat = 0; seat < 4; seat++) {
+      if (this.players[seat] === null) {
+        const pSeat = seat as PlayerSeat;
+        this.players[pSeat] = {
+          seat: pSeat,
+          userId: `bot_${pSeat}`,
+          name: botNames[pSeat],
+          isReady: true,
+          isConnected: true,
+          isMuted: true,
+          isSpeaking: false,
+          hand: [],
+          swappedCard: null,
+          marbles: this.boardState.marbles[pSeat],
+          hasFinishedAllMarbles: false,
+        };
+      }
+    }
+
+    this.broadcastRoomState();
+
+    // Check if everyone is ready to start
+    const allReady = this.players.every((p) => p !== null && p.isReady);
+    if (allReady && this.phase === 'WAITING_FOR_PLAYERS') {
+      this.startNewRound();
+    }
+  }
+
+  private executeBotMove(seat: PlayerSeat) {
+    const player = this.players[seat];
+    if (!player || player.hand.length === 0) {
+      this.advanceTurn();
+      return;
+    }
+
+    const partnerSeat = ((seat + 2) % 4) as PlayerSeat;
+    const partnerFinished = this.players[partnerSeat]?.hasFinishedAllMarbles ?? false;
+
+    const decision = JackarooBot.selectBestMove(seat, player.hand, this.boardState, partnerFinished);
+    if (decision) {
+      this.handlePlayCard(seat, decision.action);
+    } else {
+      this.advanceTurn();
+    }
+  }
+
+  private triggerBotTurnIfNeeded() {
+    const activePlayer = this.players[this.currentTurn];
+    if (activePlayer && activePlayer.userId.startsWith('bot_')) {
+      // Schedule bot move after short realistic think delay
+      this.ctx.storage.setAlarm(Date.now() + BOT_THINK_DELAY_MS);
+    }
+  }
+
+  // --- Game Handlers ---
 
   private handleJoin(ws: WebSocket, userId: string, name: string, preferredSeat?: PlayerSeat) {
     let seat: number = -1;
 
-    // Check if player is reconnecting
     const existingIndex = this.players.findIndex((p) => p && p.userId === userId);
     if (existingIndex !== -1) {
       seat = existingIndex;
       this.players[seat as PlayerSeat]!.isConnected = true;
       this.players[seat as PlayerSeat]!.name = name;
     } else {
-      // Allocate seat
       if (preferredSeat !== undefined && this.players[preferredSeat] === null) {
         seat = preferredSeat;
       } else {
@@ -187,11 +254,7 @@ export class GameRoom extends DurableObject {
     }
 
     this.sessions.set(ws, { seat: playerSeat, userId });
-
-    // Send full initial state to joined user
     this.send(ws, this.buildRoomStateMessage(playerSeat));
-
-    // Broadcast new player joined to others
     this.broadcast({
       type: 'PLAYER_JOINED',
       player: this.getPublicPlayerInfo(this.players[playerSeat]!),
@@ -203,13 +266,184 @@ export class GameRoom extends DurableObject {
     if (!player || this.phase !== 'WAITING_FOR_PLAYERS') return;
 
     player.isReady = isReady;
+
+    // Automatically fill remaining empty seats with Bots so the game can start immediately!
+    this.fillWithBots();
+
     this.broadcastRoomState();
 
-    // If all 4 players are ready, start the game
     const allReady = this.players.every((p) => p !== null && p.isReady);
     if (allReady) {
       this.startNewRound();
     }
+  }
+
+  private startNewRound() {
+    const counts: RoundDealCount[] = [4, 4, 5];
+    const dealCount = counts[this.dealRoundIndex];
+    const dealtHands = this.deckManager.deal(dealCount);
+
+    for (let i = 0; i < 4; i++) {
+      this.players[i]!.hand = dealtHands[i];
+      this.players[i]!.swappedCard = null;
+
+      // If Bot, automatically pick first card to swap with partner
+      if (this.players[i]!.userId.startsWith('bot_') && this.players[i]!.hand.length > 0) {
+        this.players[i]!.swappedCard = this.players[i]!.hand.shift() || null;
+      }
+    }
+
+    this.phase = 'PARTNER_SWAP';
+    this.broadcast({
+      type: 'PHASE_CHANGED',
+      phase: 'PARTNER_SWAP',
+    });
+
+    for (const [ws, session] of this.sessions.entries()) {
+      const p = this.players[session.seat];
+      if (p) {
+        this.send(ws, {
+          type: 'CARDS_DEALT',
+          myHand: p.hand,
+          cardCountPerPlayer: dealCount,
+        });
+      }
+    }
+
+    // Check if all players (including bots) are ready with swaps
+    const allSwapped = this.players.every((p) => p && p.swappedCard !== null);
+    if (allSwapped) {
+      this.executePartnerSwaps();
+    }
+  }
+
+  private handleCardSwap(seat: PlayerSeat, cardId: string) {
+    if (this.phase !== 'PARTNER_SWAP') return;
+
+    const player = this.players[seat];
+    if (!player) return;
+
+    const cardIndex = player.hand.findIndex((c) => c.id === cardId);
+    if (cardIndex === -1) return;
+
+    player.swappedCard = player.hand.splice(cardIndex, 1)[0];
+    this.broadcastRoomState();
+
+    const allSwapped = this.players.every((p) => p && p.swappedCard !== null);
+    if (allSwapped) {
+      this.executePartnerSwaps();
+    }
+  }
+
+  private executePartnerSwaps() {
+    const partnerPairs: [PlayerSeat, PlayerSeat][] = [
+      [0, 2],
+      [1, 3],
+    ];
+
+    for (const [p1, p2] of partnerPairs) {
+      const card1 = this.players[p1]!.swappedCard!;
+      const card2 = this.players[p2]!.swappedCard!;
+
+      this.players[p1]!.hand.push(card2);
+      this.players[p2]!.hand.push(card1);
+
+      this.players[p1]!.swappedCard = null;
+      this.players[p2]!.swappedCard = null;
+
+      this.sendToSeat(p1, { type: 'CARD_SWAPPED_RECEIVED', receivedCard: card2 });
+      this.sendToSeat(p2, { type: 'CARD_SWAPPED_RECEIVED', receivedCard: card1 });
+    }
+
+    this.phase = 'PLAYING';
+    this.turnDeadline = Date.now() + TURN_DURATION_MS;
+    this.ctx.storage.setAlarm(this.turnDeadline);
+
+    this.broadcast({
+      type: 'PHASE_CHANGED',
+      phase: 'PLAYING',
+      currentTurn: this.currentTurn,
+      turnDeadline: this.turnDeadline,
+    });
+
+    this.triggerBotTurnIfNeeded();
+  }
+
+  private async handlePlayCard(seat: PlayerSeat, action: MoveAction) {
+    if (this.phase !== 'PLAYING' || this.currentTurn !== seat) {
+      return;
+    }
+
+    const player = this.players[seat];
+    if (!player) return;
+
+    const cardIndex = player.hand.findIndex((c) => c.id === action.cardId);
+    if (cardIndex === -1) return;
+
+    const card = player.hand[cardIndex];
+    const partnerSeat = ((seat + 2) % 4) as PlayerSeat;
+    const partnerFinished = this.players[partnerSeat]?.hasFinishedAllMarbles ?? false;
+
+    const result = JackarooRuleValidator.validateAndApplyMove(
+      this.boardState,
+      seat,
+      card,
+      action,
+      partnerFinished
+    );
+
+    if (!result.valid) {
+      const ws = this.findSocketForSeat(seat);
+      if (ws) this.sendError(ws, result.reason || 'Illegal move');
+      return;
+    }
+
+    player.hand.splice(cardIndex, 1);
+    this.lastDiscardedCard = card;
+
+    if (result.isWinningMove && result.winningTeam !== undefined) {
+      this.phase = 'GAME_OVER';
+      this.winningTeam = result.winningTeam;
+      this.broadcast({
+        type: 'GAME_OVER',
+        winningTeam: result.winningTeam,
+      });
+      return;
+    }
+
+    const nextTurn = this.getNextTurnSeat(seat);
+    this.currentTurn = nextTurn;
+    this.turnDeadline = Date.now() + TURN_DURATION_MS;
+    await this.ctx.storage.setAlarm(this.turnDeadline);
+
+    this.broadcast({
+      type: 'MOVE_PLAYED',
+      player: seat,
+      card,
+      marbles: this.boardState.marbles,
+      capturedMarbles: result.capturedMarbles,
+      nextTurn: this.currentTurn,
+      turnDeadline: this.turnDeadline,
+    });
+
+    const handsEmpty = this.players.every((p) => p && p.hand.length === 0);
+    if (handsEmpty) {
+      this.dealRoundIndex = ((this.dealRoundIndex + 1) % 3) as 0 | 1 | 2;
+      this.startNewRound();
+    } else {
+      this.triggerBotTurnIfNeeded();
+    }
+  }
+
+  private advanceTurn() {
+    this.currentTurn = this.getNextTurnSeat(this.currentTurn);
+    this.turnDeadline = Date.now() + TURN_DURATION_MS;
+    this.ctx.storage.setAlarm(this.turnDeadline);
+    this.triggerBotTurnIfNeeded();
+  }
+
+  private getNextTurnSeat(current: PlayerSeat): PlayerSeat {
+    return ((current + 1) % 4) as PlayerSeat;
   }
 
   private handleVoiceMuted(seat: PlayerSeat, isMuted: boolean) {
@@ -234,170 +468,6 @@ export class GameRoom extends DurableObject {
       isMuted: player.isMuted,
       isSpeaking: player.isSpeaking,
     });
-  }
-
-  private startNewRound() {
-    const counts: RoundDealCount[] = [4, 4, 5];
-    const dealCount = counts[this.dealRoundIndex];
-    const dealtHands = this.deckManager.deal(dealCount);
-
-    for (let i = 0; i < 4; i++) {
-      this.players[i]!.hand = dealtHands[i];
-      this.players[i]!.swappedCard = null;
-    }
-
-    this.phase = 'PARTNER_SWAP';
-    this.broadcast({
-      type: 'PHASE_CHANGED',
-      phase: 'PARTNER_SWAP',
-    });
-
-    // Notify each client of their dealt hand
-    for (const [ws, session] of this.sessions.entries()) {
-      const p = this.players[session.seat];
-      if (p) {
-        this.send(ws, {
-          type: 'CARDS_DEALT',
-          myHand: p.hand,
-          cardCountPerPlayer: dealCount,
-        });
-      }
-    }
-  }
-
-  private handleCardSwap(seat: PlayerSeat, cardId: string) {
-    if (this.phase !== 'PARTNER_SWAP') return;
-
-    const player = this.players[seat];
-    if (!player) return;
-
-    const cardIndex = player.hand.findIndex((c) => c.id === cardId);
-    if (cardIndex === -1) {
-      return;
-    }
-
-    player.swappedCard = player.hand.splice(cardIndex, 1)[0];
-    this.broadcastRoomState();
-
-    // Check if all 4 players have selected cards to swap
-    const allSwapped = this.players.every((p) => p && p.swappedCard !== null);
-    if (allSwapped) {
-      this.executePartnerSwaps();
-    }
-  }
-
-  private executePartnerSwaps() {
-    const partnerPairs: [PlayerSeat, PlayerSeat][] = [
-      [0, 2],
-      [1, 3],
-    ];
-
-    for (const [p1, p2] of partnerPairs) {
-      const card1 = this.players[p1]!.swappedCard!;
-      const card2 = this.players[p2]!.swappedCard!;
-
-      this.players[p1]!.hand.push(card2);
-      this.players[p2]!.hand.push(card1);
-
-      this.players[p1]!.swappedCard = null;
-      this.players[p2]!.swappedCard = null;
-
-      // Notify clients of received partner card
-      this.sendToSeat(p1, { type: 'CARD_SWAPPED_RECEIVED', receivedCard: card2 });
-      this.sendToSeat(p2, { type: 'CARD_SWAPPED_RECEIVED', receivedCard: card1 });
-    }
-
-    this.phase = 'PLAYING';
-    this.turnDeadline = Date.now() + TURN_DURATION_MS;
-    this.ctx.storage.setAlarm(this.turnDeadline);
-
-    this.broadcast({
-      type: 'PHASE_CHANGED',
-      phase: 'PLAYING',
-      currentTurn: this.currentTurn,
-      turnDeadline: this.turnDeadline,
-    });
-  }
-
-  private async handlePlayCard(seat: PlayerSeat, action: MoveAction) {
-    if (this.phase !== 'PLAYING' || this.currentTurn !== seat) {
-      return;
-    }
-
-    const player = this.players[seat];
-    if (!player) return;
-
-    const cardIndex = player.hand.findIndex((c) => c.id === action.cardId);
-    if (cardIndex === -1) {
-      return;
-    }
-
-    const card = player.hand[cardIndex];
-    const partnerSeat = ((seat + 2) % 4) as PlayerSeat;
-    const partnerFinished = this.players[partnerSeat]?.hasFinishedAllMarbles ?? false;
-
-    // Validate move
-    const result = JackarooRuleValidator.validateAndApplyMove(
-      this.boardState,
-      seat,
-      card,
-      action,
-      partnerFinished
-    );
-
-    if (!result.valid) {
-      const ws = this.findSocketForSeat(seat);
-      if (ws) this.sendError(ws, result.reason || 'Illegal move');
-      return;
-    }
-
-    // Move is valid: Consume card
-    player.hand.splice(cardIndex, 1);
-    this.lastDiscardedCard = card;
-
-    // Check game over
-    if (result.isWinningMove && result.winningTeam !== undefined) {
-      this.phase = 'GAME_OVER';
-      this.winningTeam = result.winningTeam;
-      this.broadcast({
-        type: 'GAME_OVER',
-        winningTeam: result.winningTeam,
-      });
-      return;
-    }
-
-    // Advance turn
-    const nextTurn = this.getNextTurnSeat(seat);
-    this.currentTurn = nextTurn;
-    this.turnDeadline = Date.now() + TURN_DURATION_MS;
-    await this.ctx.storage.setAlarm(this.turnDeadline);
-
-    this.broadcast({
-      type: 'MOVE_PLAYED',
-      player: seat,
-      card,
-      marbles: this.boardState.marbles,
-      capturedMarbles: result.capturedMarbles,
-      nextTurn: this.currentTurn,
-      turnDeadline: this.turnDeadline,
-    });
-
-    // Check if round is over (all hands empty)
-    const handsEmpty = this.players.every((p) => p && p.hand.length === 0);
-    if (handsEmpty) {
-      this.dealRoundIndex = ((this.dealRoundIndex + 1) % 3) as 0 | 1 | 2;
-      this.startNewRound();
-    }
-  }
-
-  private advanceTurn() {
-    this.currentTurn = this.getNextTurnSeat(this.currentTurn);
-    this.turnDeadline = Date.now() + TURN_DURATION_MS;
-    this.ctx.storage.setAlarm(this.turnDeadline);
-  }
-
-  private getNextTurnSeat(current: PlayerSeat): PlayerSeat {
-    return ((current + 1) % 4) as PlayerSeat;
   }
 
   // --- Utility & Serialization ---
