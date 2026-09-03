@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace = "in.heyluna.omludo"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "in.heyluna.omludo"
         minSdk = 29
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -48,8 +48,6 @@ dependencies {
     // Networking
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
-    implementation(libs.moshi)
-    implementation(libs.moshi.kotlin)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

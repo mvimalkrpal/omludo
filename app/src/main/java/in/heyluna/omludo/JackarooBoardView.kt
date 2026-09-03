@@ -1,4 +1,4 @@
-package in.heyluna.omludo.ui.board
+package `in`.heyluna.omludo
 
 import android.content.Context
 import android.graphics.Canvas
@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.View
-import in.heyluna.omludo.data.model.MarblePosition
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin

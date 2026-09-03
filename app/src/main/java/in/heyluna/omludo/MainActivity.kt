@@ -1,4 +1,4 @@
-package in.heyluna.omludo
+package `in`.heyluna.omludo
 
 import android.graphics.Color
 import android.os.Bundle
@@ -7,10 +7,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import in.heyluna.omludo.data.model.Card
-import in.heyluna.omludo.data.model.MoveAction
-import in.heyluna.omludo.data.network.GameSocketClient
-import in.heyluna.omludo.databinding.ActivityMainBinding
+import `in`.heyluna.omludo.databinding.ActivityMainBinding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -100,7 +97,6 @@ class MainActivity : AppCompatActivity() {
             socketClient.swapCard(card.id)
             Toast.makeText(this, "Swapped ${card.rank} with partner!", Toast.LENGTH_SHORT).show()
         } else if (currentPhase == "PLAYING") {
-            // Attempt to play on marble 0 or Ace/King exit
             val action = MoveAction(
                 player = mySeat,
                 cardId = card.id,

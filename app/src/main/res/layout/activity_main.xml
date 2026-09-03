@@ -39,7 +39,7 @@
     </LinearLayout>
 
     <!-- Custom Jackaroo Board Canvas -->
-    <in.heyluna.omludo.ui.board.JackarooBoardView
+    <in.heyluna.omludo.JackarooBoardView
         android:id="@+id/boardView"
         android:layout_width="0dp"
         android:layout_height="0dp"

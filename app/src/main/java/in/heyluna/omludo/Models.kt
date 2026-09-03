@@ -1,23 +1,18 @@
-package in.heyluna.omludo.data.model
+package `in`.heyluna.omludo
 
-import com.squareup.moshi.JsonClass
-
-@JsonClass(generateAdapter = true)
 data class Card(
     val id: String,
-    val suit: String, // HEARTS, DIAMONDS, CLUBS, SPADES
-    val rank: String  // A, 2..10, J, Q, K
+    val suit: String,
+    val rank: String
 )
 
-@JsonClass(generateAdapter = true)
 data class MarblePosition(
-    val player: Int,       // 0..3
-    val marbleIndex: Int,  // 0..3
-    val zone: String,      // BASE, TRACK, HOME
-    val position: Int      // 0..63 for TRACK, 0..3 for BASE/HOME
+    val player: Int,
+    val marbleIndex: Int,
+    val zone: String,
+    val position: Int
 )
 
-@JsonClass(generateAdapter = true)
 data class PublicPlayerInfo(
     val seat: Int,
     val userId: String,
@@ -32,7 +27,6 @@ data class PublicPlayerInfo(
     val voiceSessionId: String? = null
 )
 
-@JsonClass(generateAdapter = true)
 data class MoveAction(
     val player: Int,
     val cardId: String,
@@ -41,11 +35,10 @@ data class MoveAction(
     val isDiscard: Boolean? = null
 )
 
-@JsonClass(generateAdapter = true)
 data class RoomStatePayload(
     val type: String,
     val roomId: String? = null,
-    val phase: String, // WAITING_FOR_PLAYERS, PARTNER_SWAP, PLAYING, GAME_OVER
+    val phase: String,
     val mySeat: Int,
     val currentTurn: Int,
     val turnDeadline: Long? = null,
@@ -56,7 +49,6 @@ data class RoomStatePayload(
     val winningTeam: Int? = null
 )
 
-@JsonClass(generateAdapter = true)
 data class CreateRoomResponse(
     val roomCode: String,
     val roomId: String
