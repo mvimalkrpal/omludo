@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private val myUserId = UUID.randomUUID().toString().take(8)
     private var mySeat = 0
     private var currentPhase = "WAITING_FOR_PLAYERS"
+    private var selectedMarbleIndex: Int = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -65,18 +66,23 @@ class MainActivity : AppCompatActivity() {
             socketClient.roomState.collectLatest { state ->
                 state ?: return@collectLatest
 
-                Log.d("OmLudo", "Observed new roomState: phase=${state.phase}, currentTurn=${state.currentTurn}, cardsCount=${state.myHand.size}")
-
                 mySeat = state.mySeat
                 currentPhase = state.phase
 
-                binding.tvTurnStatus.text = "Phase: ${state.phase} | Turn: P${state.currentTurn}"
+                if (state.phase == "PARTNER_SWAP") {
+                    binding.tvTurnStatus.text = "Pass a card to partner"
+                } else if (state.phase == "PLAYING") {
+                    val turnText = if (state.currentTurn == mySeat) "YOUR TURN!" else "P${state.currentTurn}'s Turn"
+                    binding.tvTurnStatus.text = turnText
+                } else {
+                    binding.tvTurnStatus.text = "Waiting for players"
+                }
 
                 // Update Jackaroo Board
                 binding.boardView.updateMarbles(state.marbles)
 
                 // Render Hand Cards
-                renderHandCards(state.myHand)
+                renderHandCards(state.myHand, state.currentTurn == mySeat || state.phase == "PARTNER_SWAP")
             }
         }
     }
@@ -84,28 +90,35 @@ class MainActivity : AppCompatActivity() {
     private fun observeEvents() {
         lifecycleScope.launch {
             socketClient.events.collectLatest { eventText ->
-                Log.d("OmLudo", "Observed Event: $eventText")
                 try {
                     val json = JSONObject(eventText)
                     val type = json.optString("type")
                     when (type) {
-                        "PHASE_CHANGED" -> {
-                            val newPhase = json.optString("phase")
-                            binding.tvTurnStatus.text = "Phase: $newPhase"
-                            Toast.makeText(this@MainActivity, "Phase: $newPhase", Toast.LENGTH_SHORT).show()
-                        }
                         "CARDS_DEALT" -> {
-                            Toast.makeText(this@MainActivity, "Cards Dealt! Tap card to swap with partner.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, "Cards dealt! Tap a card to pass to your partner.", Toast.LENGTH_SHORT).show()
+                        }
+                        "CARD_SWAPPED_RECEIVED" -> {
+                            val card = json.optJSONObject("receivedCard")?.optString("rank") ?: ""
+                            Toast.makeText(this@MainActivity, "Received $card from partner!", Toast.LENGTH_SHORT).show()
+                        }
+                        "MOVE_PLAYED" -> {
+                            val player = json.optInt("player")
+                            val card = json.optJSONObject("card")?.optString("rank") ?: ""
+                            Toast.makeText(this@MainActivity, "P$player played $card", Toast.LENGTH_SHORT).show()
+                        }
+                        "ERROR" -> {
+                            val msg = json.optString("message")
+                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("OmLudo", "Event parsing error: ${e.message}")
+                    Log.e("OmLudo", "Event error: ${e.message}")
                 }
             }
         }
     }
 
-    private fun renderHandCards(cards: List<Card>) {
+    private fun renderHandCards(cards: List<Card>, isInteractive: Boolean) {
         binding.llHandCards.removeAllViews()
 
         for (card in cards) {
@@ -120,21 +133,20 @@ class MainActivity : AppCompatActivity() {
 
             val cardContainer = CardView(this).apply {
                 radius = 18f
-                cardElevation = 8f
-                setCardBackgroundColor(Color.parseColor("#FFFDF9"))
-                layoutParams = LinearLayout.LayoutParams(170, 240).apply {
+                cardElevation = if (isInteractive) 10f else 4f
+                setCardBackgroundColor(if (isInteractive) Color.parseColor("#FFFDF9") else Color.parseColor("#ECEFF1"))
+                layoutParams = LinearLayout.LayoutParams(160, 230).apply {
                     setMargins(10, 8, 10, 8)
                 }
                 setOnClickListener {
-                    handleCardClick(card)
+                    handleCardAction(card)
                 }
 
                 val layout = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    setPadding(12, 12, 12, 12)
+                    setPadding(10, 10, 10, 10)
 
-                    // Card Rank & Suit Top
                     addView(TextView(context).apply {
                         text = "${card.rank} $suitSymbol"
                         textSize = 20f
@@ -143,23 +155,26 @@ class MainActivity : AppCompatActivity() {
                         gravity = Gravity.CENTER
                     })
 
-                    // Center Action Graphic/Subtitle matching Jackaroo cards
-                    val actionDescription = when (card.rank) {
-                        "A" -> "✈\n1 / 11"
-                        "4" -> "⬅\n-4"
-                        "7" -> "🧩\nSplit 7"
-                        "J" -> "🔄\nSwap"
-                        "K" -> "👑\n13"
-                        "Q" -> "12"
-                        else -> card.rank
+                    val actionDescription = if (currentPhase == "PARTNER_SWAP") {
+                        "🤝 Pass"
+                    } else {
+                        when (card.rank) {
+                            "A" -> "✈ Exit/11"
+                            "4" -> "⬅ Back 4"
+                            "7" -> "🧩 Split 7"
+                            "J" -> "🔄 Swap"
+                            "K" -> "👑 Exit/13"
+                            "Q" -> "12"
+                            else -> card.rank
+                        }
                     }
                     addView(TextView(context).apply {
                         text = actionDescription
-                        textSize = 14f
+                        textSize = 13f
                         typeface = Typeface.DEFAULT_BOLD
                         setTextColor(Color.parseColor("#5D4037"))
                         gravity = Gravity.CENTER
-                        setPadding(0, 6, 0, 0)
+                        setPadding(0, 4, 0, 0)
                     })
                 }
                 addView(layout)
@@ -169,15 +184,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleCardClick(card: Card) {
+    private fun handleCardAction(card: Card) {
         if (currentPhase == "PARTNER_SWAP") {
             socketClient.swapCard(card.id)
-            Toast.makeText(this, "Swapped ${card.rank} with partner!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Passed ${card.rank} to partner!", Toast.LENGTH_SHORT).show()
         } else if (currentPhase == "PLAYING") {
             val action = MoveAction(
                 player = mySeat,
                 cardId = card.id,
-                marbleIndex = 0
+                marbleIndex = selectedMarbleIndex,
+                aceChoice = 11
             )
             socketClient.playCard(action)
         }
