@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -24,7 +25,6 @@ class MainActivity : AppCompatActivity() {
     private var currentPhase = "WAITING_FOR_PLAYERS"
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Enforce Day Mode Only across the entire application
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
 
         super.onCreate(savedInstanceState)
@@ -64,8 +64,7 @@ class MainActivity : AppCompatActivity() {
                 mySeat = state.mySeat
                 currentPhase = state.phase
 
-                // Update room code and phase banner
-                binding.tvTurnStatus.text = "Phase: ${state.phase} | Turn: P${state.currentTurn}"
+                binding.tvTurnStatus.text = "Turn: P${state.currentTurn}"
 
                 // Update Jackaroo Board
                 binding.boardView.updateMarbles(state.marbles)
@@ -90,24 +89,50 @@ class MainActivity : AppCompatActivity() {
             val isRedSuit = card.suit == "HEARTS" || card.suit == "DIAMONDS"
 
             val cardContainer = CardView(this).apply {
-                radius = 16f
-                cardElevation = 6f
-                setCardBackgroundColor(Color.WHITE)
-                layoutParams = android.widget.LinearLayout.LayoutParams(140, 190).apply {
+                radius = 18f
+                cardElevation = 8f
+                setCardBackgroundColor(Color.parseColor("#FFFDF9"))
+                layoutParams = LinearLayout.LayoutParams(170, 240).apply {
                     setMargins(10, 8, 10, 8)
                 }
                 setOnClickListener {
                     handleCardClick(card)
                 }
 
-                val textView = TextView(context).apply {
-                    text = "${card.rank}\n$suitSymbol"
-                    textSize = 18f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(if (isRedSuit) Color.parseColor("#D32F2F") else Color.parseColor("#212121"))
+                val layout = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
+                    setPadding(12, 12, 12, 12)
+
+                    // Card Rank & Suit Top
+                    addView(TextView(context).apply {
+                        text = "${card.rank} $suitSymbol"
+                        textSize = 20f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(if (isRedSuit) Color.parseColor("#C62828") else Color.parseColor("#1B1B1B"))
+                        gravity = Gravity.CENTER
+                    })
+
+                    // Center Action Graphic/Subtitle matching Jackaroo cards
+                    val actionDescription = when (card.rank) {
+                        "A" -> "✈\n1 / 11"
+                        "4" -> "⬅\n-4"
+                        "7" -> "🧩\nSplit 7"
+                        "J" -> "🔄\nSwap"
+                        "K" -> "👑\n13"
+                        "Q" -> "12"
+                        else -> card.rank
+                    }
+                    addView(TextView(context).apply {
+                        text = actionDescription
+                        textSize = 14f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(Color.parseColor("#5D4037"))
+                        gravity = Gravity.CENTER
+                        setPadding(0, 6, 0, 0)
+                    })
                 }
-                addView(textView)
+                addView(layout)
             }
 
             binding.llHandCards.addView(cardContainer)

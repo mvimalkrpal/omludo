@@ -1,12 +1,7 @@
 package `in`.heyluna.omludo
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RadialGradient
-import android.graphics.RectF
-import android.graphics.Shader
+import android.graphics.*
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.cos
@@ -19,63 +14,87 @@ class JackarooBoardView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    // Wooden Board Background Paints
-    private val woodOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.parseColor("#4E342E") // Dark Walnut rim
-    }
-
-    private val woodInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.parseColor("#8D6E63") // Warm Maple wood board
-    }
-
-    private val woodBevelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    // Ornate Wooden Border & Felt Fill
+    private val boardGoldTrimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 6f
-        color = Color.parseColor("#3E2723")
+        strokeWidth = 14f
+        color = Color.parseColor("#D4AF37") // Gold carved border
     }
 
-    // Carved Track Slots (engraved wooden holes)
-    private val holeShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val boardWoodRimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#3E2723") // Deep engraved shadow
+        color = Color.parseColor("#B8860B") // Golden Oak wood edge
     }
 
-    private val holeInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val boardInnerFeltPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#D7CCC8") // Light carved groove
+        color = Color.parseColor("#F5E6CA") // Premium Sand Beige Felt
     }
 
-    private val trackLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val boardCenterEmbossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 4f
-        color = Color.parseColor("#5D4037")
+        strokeWidth = 3f
+        color = Color.parseColor("#E5D3B3")
     }
 
-    // Vibrant 3D Glossy Marble Paints
+    // Carved Pit Holes (Wooden Board indents)
+    private val pitShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#A67C52")
+    }
+
+    private val pitInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#8C6239")
+    }
+
+    private val basePlateBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#EAD7B8")
+    }
+
+    private val basePlateBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = Color.parseColor("#C8AC85")
+    }
+
+    // 4 Team Colors
     private val playerColors = arrayOf(
-        Color.parseColor("#D32F2F"), // 0: Ruby Red
-        Color.parseColor("#1976D2"), // 1: Sapphire Blue
-        Color.parseColor("#FBC02D"), // 2: Amber Yellow
-        Color.parseColor("#388E3C")  // 3: Emerald Green
+        Color.parseColor("#43A047"), // P0 (Bottom): Emerald Green
+        Color.parseColor("#E53935"), // P1 (Right): Ruby Red
+        Color.parseColor("#1E88E5"), // P2 (Top): Sapphire Blue
+        Color.parseColor("#FDD835")  // P3 (Left): Amber Yellow
     )
 
-    private val playerExitColors = arrayOf(
-        Color.parseColor("#FF5252"),
-        Color.parseColor("#448AFF"),
-        Color.parseColor("#FFD740"),
-        Color.parseColor("#69F0AE")
+    private val playerHighlightColors = arrayOf(
+        Color.parseColor("#A5D6A7"),
+        Color.parseColor("#EF9A9A"),
+        Color.parseColor("#90CAF9"),
+        Color.parseColor("#FFF59D")
     )
 
     private val marbleHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.argb(180, 255, 255, 255) // Glossy specular reflection
+        color = Color.argb(220, 255, 255, 255)
     }
 
     private val marbleShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.argb(90, 0, 0, 0)
+        color = Color.argb(100, 0, 0, 0)
+    }
+
+    private val turnTimerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 12f
+        strokeCap = Paint.Cap.ROUND
+        color = Color.parseColor("#4CAF50")
+    }
+
+    private val turnTimerBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 12f
+        color = Color.parseColor("#423020")
     }
 
     private var marbles: List<List<MarblePosition>>? = null
@@ -91,168 +110,209 @@ class JackarooBoardView @JvmOverloads constructor(
         val size = min(width, height).toFloat()
         val centerX = width / 2f
         val centerY = height / 2f
-        val boardRadius = size * 0.47f
-        val trackRadius = size * 0.35f
-        val holeRadius = size * 0.020f
+        val R = size * 0.46f // Board Radius
 
-        // 1. Draw Luxurious Wooden Board with Rounded Edges & Bevel
-        val boardRect = RectF(
-            centerX - boardRadius,
-            centerY - boardRadius,
-            centerX + boardRadius,
-            centerY + boardRadius
-        )
-        canvas.drawRoundRect(boardRect, 48f, 48f, woodOuterPaint)
-
-        val innerRect = RectF(
-            centerX - boardRadius + 14f,
-            centerY - boardRadius + 14f,
-            centerX + boardRadius - 14f,
-            centerY + boardRadius - 14f
-        )
-        canvas.drawRoundRect(innerRect, 40f, 40f, woodInnerPaint)
-        canvas.drawRoundRect(innerRect, 40f, 40f, woodBevelPaint)
-
-        // 2. Draw Track Connecting Ring Line
-        canvas.drawCircle(centerX, centerY, trackRadius, trackLinePaint)
-
-        // 3. Draw 64 Track Holes (Engraved Wooden Slots)
-        for (i in 0 until 64) {
-            val angle = Math.toRadians((i * (360.0 / 64.0) - 90))
-            val x = centerX + trackRadius * cos(angle).toFloat()
-            val y = centerY + trackRadius * sin(angle).toFloat()
-
-            // Outer carved hole shadow
-            canvas.drawCircle(x + 1f, y + 2f, holeRadius, holeShadowPaint)
-
-            // Hole base
-            val playerExitIndex = i / 16
-            if (i % 16 == 0) {
-                // Colored Base Exit Spot
-                val exitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = playerExitColors[playerExitIndex]
-                    style = Paint.Style.FILL
-                }
-                canvas.drawCircle(x, y, holeRadius * 1.25f, exitPaint)
-                canvas.drawCircle(x, y, holeRadius * 1.25f, woodBevelPaint)
-            } else {
-                canvas.drawCircle(x, y, holeRadius, holeInnerPaint)
-            }
+        // 1. Draw Ornate Moroccan/Arabesque 4-Lobed Wood & Gold Trim Board
+        val boardPath = Path()
+        val petalCount = 8
+        for (i in 0..360 step 5) {
+            val rad = Math.toRadians(i.toDouble())
+            // Subtle petal curvature matching reference screenshot
+            val rCurv = R + (size * 0.025f) * cos(petalCount * rad).toFloat()
+            val x = centerX + rCurv * cos(rad).toFloat()
+            val y = centerY + rCurv * sin(rad).toFloat()
+            if (i == 0) boardPath.moveTo(x, y) else boardPath.lineTo(x, y)
         }
+        boardPath.close()
 
-        // 4. Draw 4 Corner Team Base Camps
-        val baseOffset = size * 0.32f
-        val baseOffsets = arrayOf(
-            Pair(-baseOffset, -baseOffset), // P0: Top-Left
-            Pair(baseOffset, -baseOffset),  // P1: Top-Right
-            Pair(baseOffset, baseOffset),   // P2: Bottom-Right
-            Pair(-baseOffset, baseOffset)   // P3: Bottom-Left
+        // Draw Board Shadow
+        canvas.drawCircle(centerX, centerY + 8f, R, marbleShadowPaint)
+        // Draw Outer Wood Trim
+        canvas.drawPath(boardPath, boardWoodRimPaint)
+        // Draw Gold Trim Edge
+        canvas.drawPath(boardPath, boardGoldTrimPaint)
+
+        // Draw Inner Warm Felt Playing Field
+        val innerPath = Path()
+        for (i in 0..360 step 5) {
+            val rad = Math.toRadians(i.toDouble())
+            val rCurv = (R - 14f) + (size * 0.024f) * cos(petalCount * rad).toFloat()
+            val x = centerX + rCurv * cos(rad).toFloat()
+            val y = centerY + rCurv * sin(rad).toFloat()
+            if (i == 0) innerPath.moveTo(x, y) else innerPath.lineTo(x, y)
+        }
+        innerPath.close()
+        canvas.drawPath(innerPath, boardInnerFeltPaint)
+
+        // 2. Draw Center Medallion with Card Suits Embossing
+        val centerRadius = size * 0.16f
+        canvas.drawCircle(centerX, centerY, centerRadius, basePlateBackgroundPaint)
+        canvas.drawCircle(centerX, centerY, centerRadius, boardCenterEmbossPaint)
+        canvas.drawCircle(centerX, centerY, centerRadius * 0.85f, boardCenterEmbossPaint)
+
+        // Draw Turn Countdown Arc in the Center (Matching reference)
+        val timerRect = RectF(
+            centerX - centerRadius * 0.72f,
+            centerY - centerRadius * 0.72f,
+            centerX + centerRadius * 0.72f,
+            centerY + centerRadius * 0.72f
         )
+        canvas.drawArc(timerRect, 120f, 100f, false, turnTimerBgPaint)
+        canvas.drawArc(timerRect, 120f, 65f, false, turnTimerPaint)
+
+        // 3. Draw 4 Corner Flower Base Camps (Top-Left, Top-Right, Bottom-Right, Bottom-Left)
+        val baseDist = size * 0.29f
+        val baseCoords = arrayOf(
+            Pair(-baseDist, baseDist),  // P0 (Bottom-Left): Green
+            Pair(baseDist, baseDist),   // P1 (Bottom-Right): Red
+            Pair(baseDist, -baseDist),  // P2 (Top-Right): Blue
+            Pair(-baseDist, -baseDist)  // P3 (Top-Left): Yellow
+        )
+
+        val slotR = size * 0.016f
 
         for (p in 0..3) {
-            val bx = centerX + baseOffsets[p].first
-            val by = centerY + baseOffsets[p].second
+            val bx = centerX + baseCoords[p].first
+            val by = centerY + baseCoords[p].second
 
-            // Carved circular recessed base plate
-            val basePlatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#4E342E")
-                style = Paint.Style.FILL
-            }
-            canvas.drawCircle(bx, by, holeRadius * 3.2f, basePlatePaint)
+            // Draw Flower/Clover shape for base
+            canvas.drawCircle(bx, by, slotR * 3.4f, basePlateBackgroundPaint)
+            canvas.drawCircle(bx, by, slotR * 3.4f, basePlateBorderPaint)
 
-            val basePlateBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = playerExitColors[p]
-                style = Paint.Style.STROKE
-                strokeWidth = 4f
-            }
-            canvas.drawCircle(bx, by, holeRadius * 3.2f, basePlateBorder)
-
-            // 4 Base Slots
+            // 4 Base Slots inside flower
             for (slot in 0..3) {
                 val sAngle = Math.toRadians(slot * 90.0 + 45.0)
-                val sx = bx + holeRadius * 1.6f * cos(sAngle).toFloat()
-                val sy = by + holeRadius * 1.6f * sin(sAngle).toFloat()
+                val sx = bx + slotR * 1.6f * cos(sAngle).toFloat()
+                val sy = by + slotR * 1.6f * sin(sAngle).toFloat()
 
-                canvas.drawCircle(sx + 1f, sy + 1f, holeRadius * 0.9f, holeShadowPaint)
-                canvas.drawCircle(sx, sy, holeRadius * 0.9f, holeInnerPaint)
+                canvas.drawCircle(sx, sy, slotR, pitShadowPaint)
+                canvas.drawCircle(sx, sy, slotR * 0.82f, pitInnerPaint)
             }
         }
 
-        // 5. Draw Home Goal Safety Paths (4 slots per player moving toward center)
-        for (p in 0..3) {
-            val entranceAngle = Math.toRadians(((p * 16 - 1) * (360.0 / 64.0) - 90))
-            for (step in 0..3) {
-                val homeRadius = trackRadius * (0.80f - step * 0.16f)
-                val hx = centerX + homeRadius * cos(entranceAngle).toFloat()
-                val hy = centerY + homeRadius * sin(entranceAngle).toFloat()
+        // 4. Draw Jackaroo Cross-Track and Home Goal Paths
+        val stepSpacing = size * 0.039f
+        val innerTrackOffset = size * 0.075f
 
-                // Colored Home slot
-                val homeSlotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = playerExitColors[p]
-                    style = Paint.Style.FILL
-                    alpha = 180
+        for (quadrant in 0..3) {
+            val angleDeg = quadrant * 90.0
+
+            // Draw 4 Colored Home Slots (Column heading into the center)
+            for (h in 0..3) {
+                val dist = (h + 2) * stepSpacing + size * 0.05f
+                val hAngle = Math.toRadians(angleDeg + 90.0)
+                val hx = centerX + dist * cos(hAngle).toFloat()
+                val hy = centerY + dist * sin(hAngle).toFloat()
+
+                val homeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = playerColors[quadrant]
+                    style = Paint.Style.STROKE
+                    strokeWidth = 4f
                 }
-                canvas.drawCircle(hx + 1f, hy + 1f, holeRadius * 0.95f, holeShadowPaint)
-                canvas.drawCircle(hx, hy, holeRadius * 0.95f, homeSlotPaint)
-                canvas.drawCircle(hx, hy, holeRadius * 0.95f, woodBevelPaint)
+                canvas.drawCircle(hx, hy, slotR * 1.15f, pitShadowPaint)
+                canvas.drawCircle(hx, hy, slotR * 0.95f, homeFill)
+            }
+
+            // Draw 2 Parallel Rows of 8 Pits each along the 4 Cross Wings
+            for (row in listOf(-innerTrackOffset, innerTrackOffset)) {
+                for (step in 0..7) {
+                    val dist = (step + 2) * stepSpacing + size * 0.05f
+                    val rad = Math.toRadians(angleDeg + 90.0)
+
+                    val px = centerX + dist * cos(rad).toFloat() - row * sin(rad).toFloat()
+                    val py = centerY + dist * sin(rad).toFloat() + row * cos(rad).toFloat()
+
+                    // Check if Base Exit Diamond Slot
+                    if (step == 7 && row == innerTrackOffset) {
+                        val diamondPath = Path().apply {
+                            moveTo(px, py - slotR * 1.5f)
+                            lineTo(px + slotR * 1.5f, py)
+                            lineTo(px, py + slotR * 1.5f)
+                            lineTo(px - slotR * 1.5f, py)
+                            close()
+                        }
+                        val exitFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = playerColors[quadrant]
+                            style = Paint.Style.FILL
+                        }
+                        canvas.drawPath(diamondPath, exitFill)
+                        canvas.drawPath(diamondPath, boardCenterEmbossPaint)
+                    } else {
+                        canvas.drawCircle(px, py, slotR, pitShadowPaint)
+                        canvas.drawCircle(px, py, slotR * 0.82f, pitInnerPaint)
+                    }
+                }
             }
         }
 
-        // 6. Draw 3D Glossy Marbles
+        // 5. Draw 3D Jewel/Glass Spherical Marbles
         marbles?.let { allMarbles ->
             for (playerIdx in allMarbles.indices) {
                 val playerMarbles = allMarbles[playerIdx]
                 val baseColor = playerColors[playerIdx]
+                val highlightColor = playerHighlightColors[playerIdx]
 
                 for (marble in playerMarbles) {
                     var mx = centerX
                     var my = centerY
 
                     when (marble.zone) {
-                        "TRACK" -> {
-                            val angle = Math.toRadians((marble.position * (360.0 / 64.0) - 90))
-                            mx = centerX + trackRadius * cos(angle).toFloat()
-                            my = centerY + trackRadius * sin(angle).toFloat()
-                        }
                         "BASE" -> {
-                            val bx = centerX + baseOffsets[playerIdx].first
-                            val by = centerY + baseOffsets[playerIdx].second
+                            val bx = centerX + baseCoords[playerIdx].first
+                            val by = centerY + baseCoords[playerIdx].second
                             val sAngle = Math.toRadians(marble.position * 90.0 + 45.0)
-                            mx = bx + holeRadius * 1.6f * cos(sAngle).toFloat()
-                            my = by + holeRadius * 1.6f * sin(sAngle).toFloat()
+                            mx = bx + slotR * 1.6f * cos(sAngle).toFloat()
+                            my = by + slotR * 1.6f * sin(sAngle).toFloat()
                         }
                         "HOME" -> {
-                            val homeRadius = trackRadius * (0.80f - marble.position * 0.16f)
-                            val entranceAngle = Math.toRadians(((playerIdx * 16 - 1) * (360.0 / 64.0) - 90))
-                            mx = centerX + homeRadius * cos(entranceAngle).toFloat()
-                            my = centerY + homeRadius * sin(entranceAngle).toFloat()
+                            val angleDeg = playerIdx * 90.0
+                            val dist = (marble.position + 2) * stepSpacing + size * 0.05f
+                            val hAngle = Math.toRadians(angleDeg + 90.0)
+                            mx = centerX + dist * cos(hAngle).toFloat()
+                            my = centerY + dist * sin(hAngle).toFloat()
+                        }
+                        "TRACK" -> {
+                            // Map 0..63 onto the 4 cross wings
+                            val quad = (marble.position / 16)
+                            val stepInQuad = marble.position % 16
+                            val angleDeg = quad * 90.0
+                            val rad = Math.toRadians(angleDeg + 90.0)
+
+                            val (dist, row) = if (stepInQuad < 8) {
+                                Pair((stepInQuad + 2) * stepSpacing + size * 0.05f, -innerTrackOffset)
+                            } else {
+                                Pair((15 - stepInQuad + 2) * stepSpacing + size * 0.05f, innerTrackOffset)
+                            }
+
+                            mx = centerX + dist * cos(rad).toFloat() - row * sin(rad).toFloat()
+                            my = centerY + dist * sin(rad).toFloat() + row * cos(rad).toFloat()
                         }
                     }
 
-                    val marbleR = holeRadius * 1.25f
+                    val mRadius = slotR * 1.45f
 
-                    // Drop Shadow
-                    canvas.drawCircle(mx + 2f, my + 4f, marbleR, marbleShadowPaint)
+                    // Marble Drop Shadow
+                    canvas.drawCircle(mx + 3f, my + 5f, mRadius, marbleShadowPaint)
 
-                    // 3D Spherical Radial Shader
-                    val marbleShader = RadialGradient(
-                        mx - marbleR * 0.35f,
-                        my - marbleR * 0.35f,
-                        marbleR * 1.1f,
-                        Color.WHITE,
+                    // 3D Glass Radial Gradient
+                    val gradient = RadialGradient(
+                        mx - mRadius * 0.35f,
+                        my - mRadius * 0.35f,
+                        mRadius * 1.25f,
+                        highlightColor,
                         baseColor,
                         Shader.TileMode.CLAMP
                     )
-                    val marbleBodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        shader = marbleShader
+                    val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = gradient
                     }
-                    canvas.drawCircle(mx, my, marbleR, marbleBodyPaint)
+                    canvas.drawCircle(mx, my, mRadius, bodyPaint)
 
-                    // Glass Specular Glint
+                    // Inner Rim & Glint
                     canvas.drawCircle(
-                        mx - marbleR * 0.3f,
-                        my - marbleR * 0.3f,
-                        marbleR * 0.28f,
+                        mx - mRadius * 0.32f,
+                        my - mRadius * 0.32f,
+                        mRadius * 0.35f,
                         marbleHighlightPaint
                     )
                 }
