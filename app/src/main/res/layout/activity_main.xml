@@ -5,80 +5,100 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="#F8F3ED"
     android:fitsSystemWindows="true">
 
-    <!-- Top Status / Turn Banner -->
-    <LinearLayout
-        android:id="@+id/topBar"
+    <!-- Top Header Bar: Clean Wooden Card -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/topBarCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
-        android:gravity="center_vertical"
-        android:background="#1E1E1E"
+        android:layout_margin="12dp"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="4dp"
+        app:cardBackgroundColor="#3E2723"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <TextView
-            android:id="@+id/tvRoomCode"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Room: ----"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+            android:orientation="vertical"
+            android:paddingHorizontal="18dp"
+            android:paddingVertical="12dp">
 
-        <TextView
-            android:id="@+id/tvTurnStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Waiting for players"
-            android:textColor="#FFCA28"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+            <TextView
+                android:id="@+id/tvRoomCode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Room: ----"
+                android:textColor="#FFF8E1"
+                android:textSize="18sp"
+                android:textStyle="bold" />
 
-    <!-- Custom Jackaroo Board Canvas -->
+            <TextView
+                android:id="@+id/tvTurnStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Waiting for players"
+                android:textColor="#FFD54F"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Jackaroo Board View (Scaled & Centered) -->
     <in.heyluna.omludo.JackarooBoardView
         android:id="@+id/boardView"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_margin="16dp"
+        android:layout_margin="12dp"
         app:layout_constraintDimensionRatio="1:1"
-        app:layout_constraintTop_toBottomOf="@id/topBar"
-        app:layout_constraintBottom_toTopOf="@id/cardsContainer"
+        app:layout_constraintTop_toBottomOf="@id/topBarCard"
+        app:layout_constraintBottom_toTopOf="@id/handSectionCard"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Player Hand Cards -->
-    <HorizontalScrollView
-        android:id="@+id/cardsContainer"
+    <!-- Hand Cards Carousel Container -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/handSectionCard"
         android:layout_width="0dp"
-        android:layout_height="100dp"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginBottom="16dp"
+        android:layout_height="120dp"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginBottom="12dp"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="3dp"
+        app:cardBackgroundColor="#EFEBE9"
         app:layout_constraintBottom_toTopOf="@id/bottomControls"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <LinearLayout
-            android:id="@+id/llHandCards"
-            android:layout_width="wrap_content"
+        <HorizontalScrollView
+            android:id="@+id/cardsContainer"
+            android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="horizontal"
-            android:gravity="center_vertical" />
-    </HorizontalScrollView>
+            android:padding="8dp"
+            android:scrollbars="none">
 
-    <!-- Bottom Controls: Create Room, Ready Up -->
+            <LinearLayout
+                android:id="@+id/llHandCards"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+        </HorizontalScrollView>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Bottom Controls: Day Mode Buttons -->
     <LinearLayout
         android:id="@+id/bottomControls"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="16dp"
         android:gravity="center"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -86,17 +106,26 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCreateRoom"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="54dp"
+            android:layout_weight="1"
             android:text="Create Room"
-            android:layout_marginEnd="8dp" />
+            android:textSize="15sp"
+            android:textStyle="bold"
+            app:cornerRadius="14dp"
+            app:backgroundTint="#8D6E63"
+            android:layout_marginEnd="10dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnReady"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="54dp"
+            android:layout_weight="1"
             android:text="Ready Up"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+            android:textSize="15sp"
+            android:textStyle="bold"
+            app:cornerRadius="14dp"
+            app:backgroundTint="#2E7D32" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

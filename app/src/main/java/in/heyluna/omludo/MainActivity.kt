@@ -1,11 +1,14 @@
 package `in`.heyluna.omludo
 
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.cardview.widget.CardView
 import androidx.lifecycle.lifecycleScope
 import `in`.heyluna.omludo.databinding.ActivityMainBinding
 import kotlinx.coroutines.flow.collectLatest
@@ -21,6 +24,9 @@ class MainActivity : AppCompatActivity() {
     private var currentPhase = "WAITING_FOR_PLAYERS"
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Enforce Day Mode Only across the entire application
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -74,21 +80,37 @@ class MainActivity : AppCompatActivity() {
         binding.llHandCards.removeAllViews()
 
         for (card in cards) {
-            val cardView = TextView(this).apply {
-                text = "${card.rank}\n${card.suit.take(1)}"
-                textSize = 14f
-                setTextColor(if (card.suit == "HEARTS" || card.suit == "DIAMONDS") Color.RED else Color.BLACK)
-                setBackgroundColor(Color.WHITE)
-                gravity = Gravity.CENTER
-                setPadding(24, 16, 24, 16)
-                layoutParams = android.widget.LinearLayout.LayoutParams(140, 180).apply {
-                    setMargins(8, 0, 8, 0)
+            val suitSymbol = when (card.suit) {
+                "HEARTS" -> "♥"
+                "DIAMONDS" -> "♦"
+                "CLUBS" -> "♣"
+                "SPADES" -> "♠"
+                else -> card.suit.take(1)
+            }
+            val isRedSuit = card.suit == "HEARTS" || card.suit == "DIAMONDS"
+
+            val cardContainer = CardView(this).apply {
+                radius = 16f
+                cardElevation = 6f
+                setCardBackgroundColor(Color.WHITE)
+                layoutParams = android.widget.LinearLayout.LayoutParams(140, 190).apply {
+                    setMargins(10, 8, 10, 8)
                 }
                 setOnClickListener {
                     handleCardClick(card)
                 }
+
+                val textView = TextView(context).apply {
+                    text = "${card.rank}\n$suitSymbol"
+                    textSize = 18f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(if (isRedSuit) Color.parseColor("#D32F2F") else Color.parseColor("#212121"))
+                    gravity = Gravity.CENTER
+                }
+                addView(textView)
             }
-            binding.llHandCards.addView(cardView)
+
+            binding.llHandCards.addView(cardContainer)
         }
     }
 
