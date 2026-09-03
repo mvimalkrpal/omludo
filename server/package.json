@@ -1,5 +1,5 @@
 {
-  "name": "omludo-server",
+  "name": "omludo",
   "version": "1.0.0",
   "description": "Jackaroo real-time game server on Cloudflare Workers & Durable Objects",
   "main": "src/index.ts",
@@ -10,7 +10,13 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["jackaroo", "cloudflare", "durable-objects", "webrtc", "game-server"],
+  "keywords": [
+    "jackaroo",
+    "cloudflare",
+    "durable-objects",
+    "webrtc",
+    "game-server"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -20,6 +26,6 @@
     "@cloudflare/workers-types": "^4.20250224.0",
     "typescript": "^5.7.3",
     "vitest": "^3.0.7",
-    "wrangler": "^3.111.0"
+    "wrangler": "^4.128.0"
   }
 }
